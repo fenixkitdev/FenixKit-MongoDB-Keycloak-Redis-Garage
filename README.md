@@ -216,6 +216,45 @@ Presigned URL signatures include the host. The API uses two separate S3 clients:
 - Internal client (`ServiceUrl = http://garage:3900`) — for upload, delete, and metadata operations inside Docker.
 - External client (`ExternalServiceUrl = http://localhost:3900`) — for presigned URL generation, so the signed URL contains the host the browser can actually reach.
 
+For AWS S3, both are set to `""` — the SDK resolves the regional endpoint automatically from the `Region` setting. Each bucket can override `Region` independently, allowing buckets from different regions or providers in the same deployment.
+
+### Per-Bucket Configuration
+
+Every bucket is configured independently. The URL properties (`ServiceUrl`, `ExternalServiceUrl`, `WebServiceUrl`) follow null vs empty semantics at the bucket level:
+
+| Value | Behaviour |
+|---|---|
+| Property absent | Inherit the global value from `Storage:*` |
+| `""` (empty string) | Explicit override to empty — use AWS native endpoints |
+| `"http://..."` | Use this URL for this bucket only |
+
+Additional per-bucket properties:
+
+| Property | Default | Notes |
+|---|---|---|
+| `Region` | global `Region` | Region override for this bucket — e.g. `"eu-north-1"` |
+| `UseChunkEncoding` | `false` | Set `true` for AWS S3; most self-hosted stores do not support chunked Transfer-Encoding |
+| `DisablePayloadSigning` | `false` | Set `true` if the backend returns signature errors |
+| `DisableDefaultChecksumValidation` | `false` | Set `true` if the backend rejects trailing checksum headers |
+| `AccessKey` / `SecretKey` | global keys | Per-bucket credential overrides |
+
+**AWS S3 example:**
+
+```json
+"product-images": {
+  "BucketName":        "my-product-images",
+  "AccessMode":        "PresignedUrl",
+  "Region":            "eu-north-1",
+  "ServiceUrl":        "",
+  "ExternalServiceUrl": "",
+  "WebServiceUrl":     "",
+  "PresignedUrlExpirySeconds": 604800,
+  "AllowedContentTypes": [ "image/jpeg", "image/png", "image/webp" ],
+  "MaxFileSizeBytes":  5242880,
+  "UseChunkEncoding":  true
+}
+```
+
 ### File Attachment Repository
 
 `FileRepository` manages `FileAttachment` records in MongoDB and coordinates with `IStorageService` for the S3 operations. Each attachment is linked to a domain entity by `(entityType, entityId, role)` — for example `("product", "abc123", "image")`. A unique MongoDB index enforces one file per role per entity.
