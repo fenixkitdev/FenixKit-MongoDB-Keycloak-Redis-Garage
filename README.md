@@ -1,20 +1,20 @@
-# FenixKit — .NET Minimal API  MongoDB + Keycloak + Redis
+# FenixKit — .NET Minimal API — MongoDB + Keycloak + Redis + Garage
+
+> **Ship faster. Build smarter.**  
+> A .NET Minimal API starter with Keycloak JWT authentication, Redis cache-aside, S3-compatible file storage, MongoDB, and zero manual setup.
+
+Keycloak JWT auth is the hardest part to get right in a new .NET API. Wrong token validation, missing role checks, broken Swagger login flows, no health check on the auth server — all fixable, all time-consuming. FenixKit ships with all of it wired up from day one, plus a full tag-based Redis cache layer, a complete S3 file storage system with three access modes, and a file attachment repository that attaches files to any domain entity.
+
+> **Keycloak, Redis, and Garage run out of the box.** A pre-built realm with two test users is imported automatically when the Docker stack starts. Garage is bootstrapped by an init container. No manual setup required for any dependency.
 
 <p align="center">
   <a href="https://fenixkit.dev">
-    <img src="images/logo-mongo-keycloak-redis.png" alt="FenixKit" width="300" />
+    <img src="images/logo-mongo-redis-garage.png" alt="FenixKit" width="300" />
   </a>
 </p>
 <h3 align="center">
   Get it here: <a href="https://fenixkit.dev">fenixkit.dev</a>
 </h3>
-
-> **Ship faster. Build smarter.**  
-> A production-ready .NET Minimal API starter with Keycloak JWT authentication, Redis cache-aside, MongoDB, and zero manual setup.
-
-Keycloak JWT auth is the hardest part to get right in a new .NET API. Wrong token validation, missing role checks, broken Swagger login flows, no health check on the auth server — all fixable, all time-consuming. FenixKit ships with all of it wired up from day one, plus a full tag-based Redis cache layer that degrades gracefully when Redis is unavailable.
-
-> **Keycloak and Redis run out of the box.** A pre-built realm with two test users is imported automatically when the Docker stack starts. No Keycloak or Redis setup required.
 
 ---
 
@@ -22,26 +22,32 @@ Keycloak JWT auth is the hardest part to get right in a new .NET API. Wrong toke
 
 | Feature | Details |
 |---|---|
-| **Keycloak Auth** | JWT Bearer validation  |
+| **Keycloak Auth** | JWT Bearer validation |
 | **Role-based policies** | `Authenticated` and `AdminOnly` policies wired in from the start |
 | **Swagger OAuth2 PKCE** | Authorize button in Swagger UI logs in via Keycloak — tokens injected automatically |
 | **Pre-built realm** | `realm-export.json` imported at startup — two test users, one client, two roles |
 | **Redis cache-aside** | 3-level tag-based invalidation; FailOpen / FailClosed; optional via `Cache:Enabled` |
+| **S3 object storage (Garage)** | Self-hosted S3-compatible storage; three access modes: Public, PresignedUrl, Proxy |
+| **File attachment system** | `FileAttachment` entity + `FileRepository`; attach files to any entity by type + role |
+| **Product image endpoints** | `POST/DELETE /api/products/{id}/image` — replaces on upload, cleans S3 on delete |
+| **Presigned URL caching** | `GetCacheTtl()` hook ties cache TTL to presigned URL expiry — stale URLs never served |
 | **Keycloak health check** | `/health/ready` includes Keycloak reachability via OIDC discovery |
 | **Redis health check** | `/health/ready` includes Redis ping — omitted automatically when cache is disabled |
+| **Garage health check** | `/health/ready` includes Garage S3 API reachability |
 | **Auth example endpoints** | `/api/auth-examples/me` and `/api/auth-examples/admin` — working patterns to copy |
-| **Minimal API** | .NET 8 / .NET 10 — route grouping, no controllers, fast startup |
+| **Minimal API** | Route grouping, no controllers, fast startup |
 | **MongoDB** | `MongoRepository` via `IDBRepository`, singleton, health-checked |
 | **ErrorOr** | Result pattern throughout — no exceptions for control flow |
 | **Offset + Cursor pagination** | Both strategies included, pick the right one per endpoint |
-| **BaseRepository** | 7 domain hooks + 4 cache key hooks — extend CRUD without rewriting it |
+| **BaseRepository** | 13 domain hooks + 1 error hook + 5 cache hooks — extend CRUD without rewriting it |
 | **Global error handler** | RFC 7807 `ProblemDetails` on every unhandled exception |
-| **Docker + Compose** | API + MongoDB + Keycloak + Redis, healthcheck-gated startup order |
+| **Docker + Compose** | API + MongoDB + Keycloak + Redis + Garage, healthcheck-gated startup order |
+| **Valkey support** | `docker-compose.valkey.yml` — drop-in Redis replacement, BSD-3-Clause licence |
 | **Environment variables** | `.env.example` with placeholder resolution via Steeltoe |
 
 ---
 
-## Why Not Wire Auth Yourself?
+## Why Not Wire This Yourself?
 
 | Starting from scratch | Using FenixKit |
 |---|---|
@@ -54,6 +60,9 @@ Keycloak JWT auth is the hardest part to get right in a new .NET API. Wrong toke
 | Reading claims is inconsistent | Typed `UserInfoResponse` with username, email, roles, subject |
 | Cache invalidation built from scratch | Tag-based invalidation in `BaseRepository` — automatic on every write |
 | Redis outage kills the API | FailOpen mode: Redis errors treated as cache misses, falls through to MongoDB |
+| File storage wired manually per entity | `FileRepository` + `IStorageService` handle upload, presigned URLs, proxy streaming |
+| Presigned URLs cached beyond expiry | `GetCacheTtl()` hook bounds cache TTL to URL expiry — stale URLs never returned |
+| S3 setup + credentials in every handler | `StorageOptions` + per-bucket config — handlers call one method, storage handles the rest |
 
 ---
 
@@ -67,7 +76,6 @@ Client → GET  /api/products/ + Bearer <JWT> → API validates → 200 OK
                                                              → 401 if missing/invalid
                                                              → 403 if wrong role
 ```
-
 
 ## Protecting Endpoints
 
@@ -172,8 +180,6 @@ Set `Cache:Enabled = false` to run without Redis. A `NullCacheService` no-op is 
 Every cache key and invalidation tag is controlled by virtual hooks on `BaseRepository`:
 
 ```csharp
-// ProductRepository.cs
-
 protected override string GetCacheKey(string id)
     => $"product:{id}";
 
@@ -189,14 +195,84 @@ On an update that changes `Category`, `BaseRepository` automatically unions the 
 
 ---
 
+## S3 File Storage
+
+The kit includes a complete file management layer built on top of [Garage](https://garagehq.deuxfleurs.fr/), a self-hosted S3-compatible object store. The same code runs against AWS S3 or any other S3-compatible backend — only the `Storage__ServiceUrl` env var changes.
+
+### Three Access Modes
+
+Each bucket is configured independently in `appsettings.json`:
+
+| Mode | How it works | When to use |
+|---|---|---|
+| `Public` | Garage website endpoint serves the file directly — no auth, no API involved | Public assets: logos, static images |
+| `PresignedUrl` | API generates a time-limited signed URL; client navigates to it directly | Product images, user uploads — client gets direct S3 access, API is not in the data path |
+| `Proxy` | API fetches from S3 and streams the response to the client | Private files — client never has a direct S3 URL |
+
+### Two-URL Signing
+
+Presigned URL signatures include the host. The API uses two separate S3 clients:
+
+- Internal client (`ServiceUrl = http://garage:3900`) — for upload, delete, and metadata operations inside Docker.
+- External client (`ExternalServiceUrl = http://localhost:3900`) — for presigned URL generation, so the signed URL contains the host the browser can actually reach.
+
+### File Attachment Repository
+
+`FileRepository` manages `FileAttachment` records in MongoDB and coordinates with `IStorageService` for the S3 operations. Each attachment is linked to a domain entity by `(entityType, entityId, role)` — for example `("product", "abc123", "image")`. A unique MongoDB index enforces one file per role per entity.
+
+`ProductRepository` uses this pattern to manage product images:
+
+```csharp
+// Upload — replaces existing image
+await fileRepo.DeleteByEntityRoleAsync("product", id, "image", ct);
+await fileRepo.CreateAsync(new FileAttachmentCreateRequest { ... }, ct);
+
+// Download — mode-agnostic, driven by bucket AccessMode
+var download = await fileRepo.GetDownloadAsync(fileId, ct);
+// Returns PublicUrlDownload | PresignedUrlDownload | ProxyDownload
+```
+
+### Cache TTL Bound to Presigned URL Expiry
+
+`ProductRepository` overrides `GetCacheTtl()` to return the presigned URL expiry for the `product-images` bucket. This prevents the cache from serving responses with already-expired URLs:
+
+```csharp
+protected override TimeSpan? GetCacheTtl()
+    => TimeSpan.FromSeconds(
+           _StorageOptions.GetBucket("product-images").Value.PresignedUrlExpirySeconds);
+```
+
+---
+
+## Using Valkey Instead of Redis
+
+[Valkey](https://valkey.io) is an open-source Redis-compatible key-value store maintained by the Linux Foundation. It is wire-compatible with Redis — StackExchange.Redis connects to it without any code changes.
+
+To run the full stack with Valkey instead of Redis, use the dedicated compose file:
+
+```bash
+docker compose -f docker-compose.valkey.yml up --build
+```
+
+Everything else stays the same — the `.env` file, the API code, the cache configuration, and the health check endpoint.
+
+| | Redis 8 | Valkey 8 |
+|---|---|---|
+| Licence | RSALv2 + SSPLv1 (non-OSI) | BSD-3-Clause (OSI-approved) |
+| Wire protocol | RESP2 / RESP3 | RESP2 / RESP3 |
+| StackExchange.Redis | Yes | Yes (transparent) |
+| Docker image | `redis:8-alpine` | `valkey/valkey:8-alpine` |
+
+---
+
 ## Health Checks
 
 ```
 GET /health/live   → Liveness  — is the process alive?
-GET /health/ready  → Readiness — is MongoDB reachable? Is Keycloak reachable? Is Redis reachable?
+GET /health/ready  → Readiness — is MongoDB reachable? Is Keycloak reachable? Is Redis reachable? Is Garage reachable?
 ```
 
-The Keycloak check fetches the OIDC discovery document (`/.well-known/openid-configuration`). The Redis check runs `PING`. Both degrade independently — a Redis failure does not affect Keycloak validation or MongoDB writes.
+The Keycloak check fetches the OIDC discovery document (`/.well-known/openid-configuration`). The Redis check runs `PING`. The Garage check pings the S3 API endpoint. All checks degrade independently — a Garage failure does not affect Keycloak validation or cache hits.
 
 ```json
 {
@@ -204,7 +280,8 @@ The Keycloak check fetches the OIDC discovery document (`/.well-known/openid-con
   "entries": {
     "mongodb":  { "status": "Healthy" },
     "keycloak": { "status": "Healthy" },
-    "redis":    { "status": "Healthy" }
+    "redis":    { "status": "Healthy" },
+    "garage":   { "status": "Healthy" }
   }
 }
 ```
@@ -219,15 +296,22 @@ Redis is omitted from `/health/ready` when `Cache:Enabled = false`.
 # 1. Copy the environment file
 cp .env.example .env
 
-# 2. Start the full stack — API + MongoDB + Keycloak + Redis
+# 2. Start the full stack — API + MongoDB + Keycloak + Redis + Garage
 docker compose up --build
 
-# API           → http://localhost:8081
-# Swagger       → http://localhost:8081/swagger
+# API            → http://localhost:8081
+# Swagger        → http://localhost:8081/swagger
 # Keycloak admin → http://localhost:8082  (admin / changeme)
+# Garage S3 API  → http://localhost:3900
 ```
 
-Open Swagger, click **Authorize**, log in as `admin-test` / `admin123`. All requests will carry the Bearer token automatically. Redis starts alongside the other services — no extra steps.
+Open Swagger, click **Authorize**, log in as `admin-test` / `admin123`. All requests will carry the Bearer token automatically. Redis and Garage start alongside the other services — no extra steps.
+
+To use **Valkey** instead of Redis (BSD-3-Clause licence, wire-compatible with StackExchange.Redis):
+
+```bash
+docker compose -f docker-compose.valkey.yml up --build
+```
 
 ---
 
@@ -250,12 +334,14 @@ All errors — including auth errors — follow [RFC 7807](https://www.rfc-edito
 
 | Package | Role |
 |---|---|
-| .NET 8 LTS (C# 12) · .NET 10 (C# 14) | Runtime and language |
+| .NET 8 LTS / .NET 10 + C# 12/14 | Runtime and language |
 | Keycloak 24 | OIDC / OAuth2 identity provider |
 | Microsoft.AspNetCore.Authentication.JwtBearer | JWT Bearer validation |
 | MongoDB.Driver | Official MongoDB .NET driver |
-| Redis 8 / Valkey 7.2+ | Cache server — compatible with both (`docker-compose.valkey.yml` included) |
+| Redis 8 / Valkey 8 | Cache server — compatible with both (`docker-compose.valkey.yml` included) |
 | StackExchange.Redis | Redis client — tag-based cache-aside layer |
+| Garage v2 | Self-hosted S3-compatible object storage (S3 API on port 3900, website on port 3902) |
+| AWSSDK.S3 | S3 client — used for upload, presigned URL generation, and proxy streaming |
 | ErrorOr v2 | Result pattern — no exceptions for domain errors |
 | Swashbuckle.AspNetCore | Swagger UI + OAuth2 PKCE flow |
 | DotNetEnv + Steeltoe | `.env` file + `${VAR}` placeholder resolution in appsettings |
@@ -263,14 +349,14 @@ All errors — including auth errors — follow [RFC 7807](https://www.rfc-edito
 
 ---
 
-## Upgrading from FenixKit Base
+## Upgrading from a Previous Edition
 
-Already own the base kit? See `MIGRATION.md` — step-by-step instructions for adding Keycloak auth to an existing FenixKit project or any .NET 8 Minimal API.
+Already own FenixKit Base or the Keycloak + Redis edition? See `MIGRATION.md` — step-by-step instructions for upgrading to this full edition, or for adding these features to any existing .NET Minimal API project.
 
 ---
 
 ## License
 
-FenixKit MongoDB + Keycloak + Redis is a commercial product. Each purchase grants a lifetime licence for unlimited personal and commercial projects.
+FenixKit MongoDB + Keycloak + Redis + Garage is a commercial product. Each purchase grants a lifetime licence for unlimited personal and commercial projects.
 
 👉 **[fenixkit.dev](https://fenixkit.dev)**
