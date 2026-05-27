@@ -195,6 +195,70 @@ On an update that changes `Category`, `BaseRepository` automatically unions the 
 
 ---
 
+## BaseRepository — Hook Reference
+
+Every derived repository can extend CRUD behaviour by overriding virtual hooks. All hooks have safe no-op defaults — nothing breaks if you don't override them.
+
+### Domain Hooks (13)
+
+| Hook | Returns | When it runs | Override to |
+|---|---|---|---|
+| `OnValidateCreateAsync` | `Task<ErrorOr<Success>>` | Before DB insert | Validate client fields, check for duplicates |
+| `OnMapCreateAsync` | `Task<ErrorOr<T>>` | After `ToDBEntity()`, before insert | Add server-side computed fields (timestamps, slugs) |
+| `OnAfterCreateAsync` | `Task` | After successful insert + cache invalidation | Send notifications, publish events |
+| `OnCreateFailedAsync` | `Task` | When DB insert fails | Roll back side effects (e.g. delete an S3 file already uploaded) |
+| `OnValidateUpdateAsync` | `Task<ErrorOr<Success>>` | After enrichment, before DB replace | Business rule validation on the fully enriched entity |
+| `OnMapUpdateAsync` | `Task<ErrorOr<T>>` | After `ToDBEntity(original)`, before replace | Enrich with server-side fields, carry over immutable fields |
+| `OnAfterUpdateAsync` | `Task` | After successful replace + cache invalidation | Side effects, downstream notifications |
+| `OnUpdateFailedAsync` | `Task` | When DB replace fails | Roll back side effects from `OnMapUpdateAsync` |
+| `OnValidateDeleteAsync` | `Task<ErrorOr<Success>>` | Before DB delete | Guard-clause checks (e.g. cannot delete if entity has children) |
+| `OnAfterDeleteAsync` | `Task` | After successful delete + cache invalidation | Clean up related resources (e.g. remove linked S3 files) |
+| `OnDeleteFailedAsync` | `Task` | When DB delete fails | Roll back |
+| `OnMapToSummaryAsync` | `Task<ErrorOr<TSummary>>` | When building list responses | Return a lightweight projection |
+| `OnMapToDetailAsync` | `Task<ErrorOr<TDetail>>` | When building single-item and create responses | Return the full detail projection |
+
+`After*` and `Failed*` hooks return `Task` — they run as side effects and do not affect the result returned to the caller.
+
+### Error Hook (1)
+
+| Hook | Returns | Override to |
+|---|---|---|
+| `GetNotFoundError(id)` | `Error` | Return a domain-specific not-found error instead of the generic type-name fallback |
+
+### Cache Hooks (5)
+
+| Hook | Returns | Override to |
+|---|---|---|
+| `GetCacheKey(id)` | `string` | Customise the by-ID cache key format |
+| `GetPagedCacheKey(request)` | `string` | Customise the offset-paged list cache key |
+| `GetCursorCacheKey(request)` | `string` | Customise the cursor-paged list cache key |
+| `GetInvalidationTags(entity)` | `IEnumerable<string>` | Control which cached entries are wiped after every write |
+| `GetCacheTtl()` | `TimeSpan?` | Set a per-entity TTL — return `null` to use the global default |
+
+### Practical Example
+
+The `OnAfterDeleteAsync` / `OnCreateFailedAsync` pair is the standard pattern for keeping S3 storage in sync with MongoDB:
+
+```csharp
+// Roll back an S3 upload if the DB insert fails after OnMapCreateAsync
+protected override async Task OnCreateFailedAsync(
+    ProductCreateRequest request, Product entity, CancellationToken ct)
+{
+    if (entity.ImageFileId is not null)
+        await _FileRepo.DeleteAsync(entity.ImageFileId, ct);
+}
+
+// Clean up all S3 files attached to a product when it is deleted
+protected override async Task OnAfterDeleteAsync(Product entity, CancellationToken ct)
+{
+    await _FileRepo.DeleteByEntityAsync("product", entity.Id, ct);
+}
+```
+
+`ProductRepository` in the kit uses this pattern. `FileRepository` coordinates the MongoDB record deletion and the S3 object removal in a single call.
+
+---
+
 ## S3 File Storage
 
 The kit includes a complete file management layer built on top of [Garage](https://garagehq.deuxfleurs.fr/), a self-hosted S3-compatible object store. The same code runs against AWS S3 or any other S3-compatible backend — only the `Storage__ServiceUrl` env var changes.
