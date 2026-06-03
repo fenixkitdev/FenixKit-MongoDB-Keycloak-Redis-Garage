@@ -2,11 +2,11 @@
 
 <p align="center">
   <a href="https://fenixkit.dev/kits/uploads/">
-    <img src="https://fenixkit.dev/assets/kits/banners/uploads.png" alt="UPLOADS by FenixKit" width="100%" />
+    <img src="images/banner.png" alt="UPLOADS by FenixKit" width="100%" />
   </a>
 </p>
 <p align="center">
-  <img src="https://fenixkit.dev/assets/kits/logos/uploads.png" alt="UPLOADS" width="200" />
+  <img src="images/logo.png" alt="UPLOADS" width="200" />
 </p>
 <h3 align="center">
   <a href="https://fenixkit.dev/kits/uploads/">fenixkit.dev/kits/uploads/</a>
@@ -460,5 +460,6 @@ Already own FenixKit Base or the Keycloak + Redis edition? See `MIGRATION.md` â€
 FenixKit MongoDB + Keycloak + Redis + Garage is a commercial product. Each purchase grants a lifetime licence for unlimited personal and commercial projects.
 
 ðŸ‘‰ **[fenixkit.dev](https://fenixkit.dev)**
+
 
 
