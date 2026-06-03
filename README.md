@@ -1,22 +1,19 @@
-# FenixKit — .NET Minimal API — MongoDB + Keycloak + Redis + Garage
-
-> **Ship faster. Build smarter.**  
-> A .NET Minimal API starter with Keycloak JWT authentication, Redis cache-aside, S3-compatible file storage, MongoDB, and zero manual setup.
-
-Keycloak JWT auth is the hardest part to get right in a new .NET API. Wrong token validation, missing role checks, broken Swagger login flows, no health check on the auth server — all fixable, all time-consuming. FenixKit ships with all of it wired up from day one, plus a full tag-based Redis cache layer, a complete S3 file storage system with three access modes, and a file attachment repository that attaches files to any domain entity.
-
-> **Keycloak, Redis, and Garage run out of the box.** A pre-built realm with two test users is imported automatically when the Docker stack starts. Garage is bootstrapped by an init container. No manual setup required for any dependency.
+﻿# UPLOADS by FenixKit — Uploads · Presigned URLs · Link · Objects · Assets · Downloads · Storage
 
 <p align="center">
-  <a href="https://fenixkit.dev">
-    <img src="images/logo-mongo-redis-garage.png" alt="FenixKit" width="300" />
+  <a href="https://fenixkit.dev/kits/uploads/">
+    <img src="https://fenixkit.dev/assets/kits/banners/uploads.png" alt="UPLOADS by FenixKit" width="100%" />
   </a>
 </p>
+<p align="center">
+  <img src="https://fenixkit.dev/assets/kits/logos/uploads.png" alt="UPLOADS" width="200" />
+</p>
 <h3 align="center">
-  Get it here: <a href="https://fenixkit.dev">fenixkit.dev</a>
+  <a href="https://fenixkit.dev/kits/uploads/">fenixkit.dev/kits/uploads/</a>
 </h3>
 
----
+> **UPLOADS — Uploads · Presigned URLs · Link · Objects · Assets · Downloads · Storage**
+> A MongoDB + Keycloak + Redis + S3 file storage .NET Minimal API template — Public, PresignedUrl, and Proxy access modes, per-bucket configuration, compatible with Garage, AWS S3 and other S3 apis.
 
 ## What's Inside
 
@@ -463,3 +460,5 @@ Already own FenixKit Base or the Keycloak + Redis edition? See `MIGRATION.md` �
 FenixKit MongoDB + Keycloak + Redis + Garage is a commercial product. Each purchase grants a lifetime licence for unlimited personal and commercial projects.
 
 👉 **[fenixkit.dev](https://fenixkit.dev)**
+
+
